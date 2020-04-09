@@ -28,11 +28,6 @@ using Microsoft.Azure.CognitiveServices.Vision.Face.Models;
  *  - NuGet libraries:
  *    Microsoft.Azure.CognitiveServices.Vision.Face
  *    
- * The Snapshot sample needs a 2nd Face resource in Azure to execute. Create one with a different region than your original Face resource. 
- * For example, Face resource 1: created with the 'westus' region. Face resource 2: created with the 'eastus' region. 
- * For this sample, the 1st region is referred to as the source region, and the 2nd region is referred to as the target region.
- * In the Program.cs file at the top, set your environment variables with your keys, regions, and ID. 
- * Once set, close and reopen the solution file for them to take effect.
  *   
  * How to run:
  *  - Create a new C# Console app in Visual Studio 2019.
@@ -41,7 +36,6 @@ using Microsoft.Azure.CognitiveServices.Vision.Face.Models;
  * Dependencies within the samples: 
  *  - Authenticate produces a client that's used by all samples.
  *  - Detect Faces is a helper function that is used by several other samples. 
- *  - Snapshot Operations need a person group ID to be executed, so it uses the one created from Identify Faces. 
  *  - The Delete Person Group uses a person group ID, so it uses the one used in the Snapshot example. 
  *    It will delete the person group from both of your Face resources in their respective regions.
  *   
@@ -60,9 +54,6 @@ namespace FaceQuickstart
 		// <snippet_persongroup_declare>
 		static string sourcePersonGroup = null;
 		// </snippet_persongroup_declare>
-		// <snippet_snapshot_persongroup>
-		static string targetPersonGroup = null;
-		// </snippet_snapshot_persongroup>
 
 		// <snippet_image_url>
 		// Used for all examples.
@@ -80,19 +71,7 @@ namespace FaceQuickstart
 			string ENDPOINT = Environment.GetEnvironmentVariable("FACE_ENDPOINT");
 			// </snippet_mainvars>
 
-			// <snippet_snapshot_vars>
-			// The Snapshot example needs its own 2nd client, since it uses two different regions.
-			string TARGET_SUBSCRIPTION_KEY = Environment.GetEnvironmentVariable("FACE_SUBSCRIPTION_KEY2");
-			string TARGET_ENDPOINT = Environment.GetEnvironmentVariable("FACE_ENDPOINT2");
-			// Grab your subscription ID, from any resource in Azure, from the Overview page (all resources have the same subscription ID). 
-			Guid AZURE_SUBSCRIPTION_ID = new Guid(Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID"));
-			// Target subscription ID. It will be the same as the source ID if created Face resources from the same
-			// subscription (but moving from region to region). If they are different subscriptions, add the other
-			// target ID here.
-			Guid TARGET_AZURE_SUBSCRIPTION_ID = new Guid(Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID"));
-			// </snippet_snapshot_vars>
-
-			// <snippet_detect_models>
+			// <snippet_detect_models> 
 			// Used in the Detect Faces and Verify examples.
 			// Recognition model 2 is used for feature extraction, use 1 to simply recognize/detect a face. 
 			// However, the API calls to Detection that are used with Verify, Find Similar, or Identify must share the same recognition model.
@@ -108,10 +87,6 @@ namespace FaceQuickstart
 			// Authenticate.
 			IFaceClient client = Authenticate(ENDPOINT, SUBSCRIPTION_KEY);
 			// </snippet_client>
-			// <snippet_snapshot_client>
-			// Authenticate for another region or subscription (used in Snapshot only).
-			IFaceClient clientTarget = Authenticate(TARGET_ENDPOINT, TARGET_SUBSCRIPTION_KEY);
-			// </snippet_snapshot_client>
 
 			// <snippet_detect_call>
 			// Detect - get features from faces.
@@ -132,9 +107,7 @@ namespace FaceQuickstart
 			FaceListOperations(client, IMAGE_BASE_URL).Wait();
 			// Large FaceList - create a large face list, then get data
 			LargeFaceListOperations(client, IMAGE_BASE_URL).Wait();
-			// Take a snapshot of a person group in one region, move it to the next region.
-			// Can also be used for moving a person group from one Azure subscription to the next.
-			Snapshot(client, clientTarget, sourcePersonGroup, AZURE_SUBSCRIPTION_ID, TARGET_AZURE_SUBSCRIPTION_ID).Wait();
+			
 
 			// <snippet_persongroup_delete>
 			// At end, delete person groups in both regions (since testing only)
@@ -142,8 +115,7 @@ namespace FaceQuickstart
 			Console.WriteLine();
 			DeletePersonGroup(client, sourcePersonGroup).Wait();
 			// </snippet_persongroup_delete>
-			// <snippet_target_persongroup_delete>
-			DeletePersonGroup(clientTarget, targetPersonGroup).Wait();
+			
 			Console.WriteLine();
 			// </snippet_target_persongroup_delete>
 
@@ -778,82 +750,7 @@ namespace FaceQuickstart
 		* END - LARGE FACELIST OPERATIONS
 		*/
 
-		// <snippet_snapshot_take>
-		/*
-		 * SNAPSHOT OPERATIONS
-		 * Copies a person group from one Azure region (or subscription) to another. For example: from the EastUS region to the WestUS.
-		 * The same process can be used for face lists. 
-		 * NOTE: the person group in the target region has a new person group ID, so it no longer associates with the source person group.
-		 */
-		public static async Task Snapshot(IFaceClient clientSource, IFaceClient clientTarget, string personGroupId, Guid azureId, Guid targetAzureId)
-		{
-			Console.WriteLine("========SNAPSHOT OPERATIONS========");
-			Console.WriteLine();
-
-			// Take a snapshot for the person group that was previously created in your source region.
-			var takeSnapshotResult = await clientSource.Snapshot.TakeAsync(SnapshotObjectType.PersonGroup, personGroupId, new[] { azureId }); // add targetAzureId to this array if your target ID is different from your source ID.
-
-			// Get operation id from response for tracking the progress of snapshot taking.
-			var operationId = Guid.Parse(takeSnapshotResult.OperationLocation.Split('/')[2]);
-			Console.WriteLine($"Taking snapshot(operation ID: {operationId})... Started");
-			// </snippet_snapshot_take>
-			// <snippet_snapshot_take_wait>
-			// Wait for taking the snapshot to complete.
-			OperationStatus operationStatus = null;
-			do
-			{
-				Thread.Sleep(TimeSpan.FromMilliseconds(1000));
-				// Get the status of the operation.
-				operationStatus = await clientSource.Snapshot.GetOperationStatusAsync(operationId);
-				Console.WriteLine($"Operation Status: {operationStatus.Status}");
-			}
-			while (operationStatus.Status != OperationStatusType.Succeeded && operationStatus.Status != OperationStatusType.Failed);
-			// Confirm the location of the resource where the snapshot is taken and its snapshot ID
-			var snapshotId = Guid.Parse(operationStatus.ResourceLocation.Split('/')[2]);
-			Console.WriteLine($"Source region snapshot ID: {snapshotId}");
-			Console.WriteLine($"Taking snapshot of person group: {personGroupId}... Done\n");
-			// </snippet_snapshot_take_wait>
-
-			// <snippet_snapshot_apply>
-			// Apply the snapshot in target region, with a new ID.
-			var newPersonGroupId = Guid.NewGuid().ToString();
-			targetPersonGroup = newPersonGroupId;
-
-			try
-			{
-				var applySnapshotResult = await clientTarget.Snapshot.ApplyAsync(snapshotId, newPersonGroupId);
-
-				// Get operation id from response for tracking the progress of snapshot applying.
-				var applyOperationId = Guid.Parse(applySnapshotResult.OperationLocation.Split('/')[2]);
-				Console.WriteLine($"Applying snapshot(operation ID: {applyOperationId})... Started");
-				// </snippet_snapshot_apply>
-				// <snippet_snapshot_apply_wait>
-				// Wait for applying operation to complete
-				do
-				{
-					Thread.Sleep(TimeSpan.FromMilliseconds(1000));
-					// Get the status of the operation.
-					operationStatus = await clientSource.Snapshot.GetOperationStatusAsync(applyOperationId);
-					Console.WriteLine($"Operation Status: {operationStatus.Status}");
-				}
-				while (operationStatus.Status != OperationStatusType.Succeeded && operationStatus.Status != OperationStatusType.Failed);
-				// Confirm location of the target resource location, with its ID.
-				Console.WriteLine($"Person group in new region: {newPersonGroupId}");
-				Console.WriteLine("Applying snapshot... Done\n");
-			}
-			// </snippet_snapshot_apply_wait>
-			// <snippet_snapshot_trycatch>
-			catch (Exception e)
-			{
-				throw new ApplicationException("Do you have a second Face resource in Azure? " +
-					"It's needed to transfer the person group to it for the Snapshot example.", e);
-			}
-		}
-		// </snippet_snapshot_trycatch>
-		/*
-		 * END - SNAPSHOT OPERATIONS 
-		 */
-
+		
 		// <snippet_deletepersongroup>
 		/*
 		 * DELETE PERSON GROUP
